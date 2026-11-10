@@ -1,4 +1,5 @@
 #include "precompiled.h"
+#include <cmath>
 
 #if defined(__linux__) || defined(__APPLE__)
 #define __fastcall
@@ -12,6 +13,9 @@ cvar_t* phf_hitbox_fix;
 // 0 = off, 1 = events (sequence latch, first-slot seed), 2 = + periodic per-player gait/interp dump (max 2/s per player)
 cvar_t hbf_developer = { "hbf_developer", "0", FCVAR_SERVER, 0.0f, NULL };
 cvar_t* phbf_developer;
+// entity index (1-based, as printed in the logs) to restrict logging to; 0 = all players
+cvar_t hbf_developer_player = { "hbf_developer_player", "0", FCVAR_SERVER, 0.0f, NULL };
+cvar_t* phbf_developer_player;
 char g_ExecConfigCmd[MAX_PATH];
 std::unique_ptr<players_api> api;
 GameType_e g_eGameType;
@@ -80,7 +84,30 @@ void UTIL_ServerPrint(const char* fmt, ...)
 	SERVER_PRINT(string);
 }
 
-#define HBF_LOG(lvl, fmt, ...) do { if (phbf_developer && phbf_developer->value >= (lvl)) UTIL_ServerPrint("[HBF] " fmt "\n", ##__VA_ARGS__); } while (0)
+// id = 0-based player index; logs print id+1 (entity index), which is what hbf_developer_player takes
+bool HBF_Dev(int lvl, int id)
+{
+	return phbf_developer && phbf_developer->value >= lvl &&
+		(!phbf_developer_player || phbf_developer_player->value == 0.0f || phbf_developer_player->value == id + 1);
+}
+#define HBF_LOG(lvl, id, fmt, ...) do { if (HBF_Dev(lvl, id)) UTIL_ServerPrint("[HBF] p%d " fmt "\n", (id) + 1, ##__VA_ARGS__); } while (0)
+
+// called from the bone setup: a NaN/inf matrix can be "hit" visually but never takes damage
+void HBF_CheckBones(int player, const int* chain, int n)
+{
+	static double next[MAX_CLIENTS];
+	if (player < 0 || player >= MAX_CLIENTS || !HBF_Dev(1, player) || gpGlobals->time < next[player])
+		return;
+	for (int k = 0; k < n; k++)
+		for (int r = 0; r < 3; r++)
+			for (int c = 0; c < 4; c++)
+				if (!std::isfinite((*g_pBoneTransform)[chain[k]][r][c]))
+				{
+					next[player] = gpGlobals->time + 1.0;
+					HBF_LOG(1, player, "NaN/inf in bone %d matrix (seq %d gait %d)", chain[k], player_params[player].sequence, player_params[player].gaitsequence);
+					return;
+				}
+}
 
 void VectorMA(const vec_t* veca, float scale, const vec_t* vecm, vec_t* out)
 {
@@ -826,7 +853,7 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 			// lerp_msec is client-controlled: clamp like the engine's unlag (0..0.1s) so a client can't pick its own rewind time
 			float lerp = _host_client->lastcmd.lerp_msec * 0.001f;
 			if (lerp > 0.1f)
-				HBF_LOG(2, "host %d lerp %.3f clamped to 0.1", host_id, lerp);
+				HBF_LOG(2, id, "host %d lerp %.3f clamped to 0.1", host_id, lerp);
 			t -= clamp<float>(lerp, 0.0f, 0.1f);
 		}
 		else
@@ -841,7 +868,7 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 		}
 		else
 		{
-			HBF_LOG(1, "p%d first update (host %d): gait state seeded", id, host_id);
+			HBF_LOG(1, id, "first update (host %d): gait state seeded", host_id);
 			// no previous slot (spawn / first update): dt=0, no fake velocity, gait starts facing the view
 			params.m_clOldTime = params.m_clTime;
 			params.m_prevgaitorigin = params.final_origin;
@@ -858,7 +885,7 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 		// and must only be overwritten here, otherwise the latch lives for one frame only.
 		if (params.sequence != prev_params.sequence)
 		{
-			HBF_LOG(1, "p%d seq %d -> %d (prevframe %.2f, host %d)", id, prev_params.sequence, params.sequence, prev_params.f, host_id);
+			HBF_LOG(1, id, "seq %d -> %d (prevframe %.2f, host %d)", prev_params.sequence, params.sequence, prev_params.f, host_id);
 			params.sequencetime = params.animtime + 0.01f;
 			params.prevsequence = prev_params.sequence;
 			params.prevframe = prev_params.f;
@@ -930,8 +957,8 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 		if (gpGlobals->time >= nextdump[id])
 		{
 			nextdump[id] = gpGlobals->time + 0.5;
-			HBF_LOG(2, "p%d host %d seq %d gait %d gaityaw %.1f yaw %.1f blend %d/%d frac %.2f dt %.3f moved %.2f",
-				id, host_id, params.sequence, params.gaitsequence, params.gaityaw, params.final_angles.y,
+			HBF_LOG(2, id, "host %d seq %d gait %d gaityaw %.1f yaw %.1f blend %d/%d frac %.2f dt %.3f moved %.2f",
+				host_id, params.sequence, params.gaitsequence, params.gaityaw, params.final_angles.y,
 				params.blending[0], params.blending[1], frac, params.m_clTime - params.m_clOldTime,
 				(params.final_origin - state->origin).Length());
 		}
@@ -1118,6 +1145,8 @@ bool OnMetaAttach()
 	phf_hitbox_fix = CVAR_GET_POINTER(hf_hitbox_fix.name);
 	CVAR_REGISTER(&hbf_developer);
 	phbf_developer = CVAR_GET_POINTER(hbf_developer.name);
+	CVAR_REGISTER(&hbf_developer_player);
+	phbf_developer_player = CVAR_GET_POINTER(hbf_developer_player.name);
 
 	HF_Init_Config();
 	HF_Exec_Config();
