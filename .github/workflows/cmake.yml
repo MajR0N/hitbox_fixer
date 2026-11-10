@@ -16,7 +16,9 @@ jobs:
         apt-get update
         apt-get install -y  git gcc-multilib g++-multilib ninja-build cmake
           
-    - uses: actions/checkout@v4  
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # full history + tags, or the version script falls back to 0.0.<commit count>
 
     - name: Create Build Environment    
       run: git config --system --add safe.directory '*' # Workaround for github actions with custom container
@@ -39,11 +41,12 @@ jobs:
           
   build_windows:
     runs-on: windows-latest
-    
+
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: 'true'
+        fetch-depth: 0 # same reason as the Linux job
 
     -
       name: Create Build Environment
