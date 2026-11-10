@@ -1,4 +1,4 @@
-# Hitbox Fixer ![C/C++ CI](https://github.com/Garey27/hitbox_fixer/workflows/CMake/badge.svg)
+# Hitbox Fixer ![C/C++ CI](https://github.com/MajR0N/hitbox_fixer/workflows/CMake/badge.svg)
 This module fixes incorrect player server-side hitboxes in Counter-Strike 1.6, Half-Life and AG. (Create issue if want support for your mod).
 
 ## In simple words
@@ -23,7 +23,7 @@ One of:
 - [x] A new player no longer starts with legs turned the wrong way for the first moment.
 - [x] Non-player entities (monsters, hostages) use the client-estimated frame (extrapolated from animtime) instead of the stale think-time frame.
 ## Downloads
-* [Release builds](https://github.com/Garey27/hitbox_fixer/releases)
+* [Release builds](https://github.com/MajR0N/hitbox_fixer/releases)
 ## How to install
 1. Download the zip from Releases and copy the `addons` folder into your game folder (for example `cstrike`).
 2. Add one line to `addons/metamod/plugins.ini`:
