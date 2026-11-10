@@ -45,7 +45,7 @@ struct player_anim_params_hist_s
 };
 uint32_t ServerFrameId;
 player_anim_params_hist_s player_params_history[MAX_CLIENTS+1]{};
-player_anim_params_s player_params[MAX_CLIENTS]{};
+player_anim_params_s player_params[MAX_CLIENTS + 1]{}; // last = scratch slot for non-player bone setup
 
 subhook_t Server_GetBlendingInterfaceHook{};
 

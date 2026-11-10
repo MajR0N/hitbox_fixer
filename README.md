@@ -8,7 +8,6 @@ One of:
 - [x] Fixes absolutely broken hitboxes when numblends == 1 (ducking/standing in reload weapon or plant c4 animation).
 - [x] Hitbox backtrack based on client-side position.
 - [x] Fixes broken hitbox position on spawn (since of correct backtrack)
+- [x] Non-player entities (monsters, hostages) use the client-estimated frame (extrapolated from animtime) instead of the stale think-time frame.
 ## Downloads
 * [Release builds](https://github.com/Garey27/hitbox_fixer/releases)
-## TODO
-- [ ] Fully implement non-players setupbones code.

@@ -13,7 +13,25 @@
 
 typedef float real_t;
 
-extern player_anim_params_s player_params[MAX_CLIENTS];
+extern player_anim_params_s player_params[MAX_CLIENTS + 1]; // [MAX_CLIENTS] = scratch slot for non-players
+
+// Non-players have no history (the engine doesn't rewind them either): evaluate their current state the way the
+// client renders it, i.e. extrapolate the frame from animtime instead of using the think-time pev->frame.
+static int SetupNonPlayerParams(float frame, int sequence, const byte* pcontroller, const byte* pblending, const edict_t* pEdict)
+{
+	player_anim_params_s& p = player_params[MAX_CLIENTS];
+	p = player_anim_params_s{};
+	p.sequence = sequence;
+	p.frame = float(int(frame)); // the client receives the frame as a byte
+	p.animtime = pEdict->v.animtime;
+	p.framerate = pEdict->v.framerate;
+	p.m_clTime = gpGlobals->time;
+	for (int i = 0; i < 4; i++)
+		p.controller[i] = p.prevcontroller[i] = pcontroller[i];
+	for (int i = 0; i < 2; i++)
+		p.blending[i] = p.prevblending[i] = p.prevseqblending[i] = pblending[i];
+	return MAX_CLIENTS;
+}
 int player = -1;
 edict_t* m_pCurrentEntity;
 extern qboolean nofind;
@@ -863,9 +881,10 @@ void EXT_FUNC HL_StudioSetupBones(model_t* pModel, float frame, int sequence, co
 		return;
 	}
 
-	if (ENTINDEX(pEdict) <= api->GetMaxClients())
+	auto entId = ENTINDEX(pEdict);
+	if (entId > 0 && entId <= api->GetMaxClients())
 	{
-		player = ENTINDEX(pEdict) - 1;
+		player = entId - 1;
 		sequence = player_params[player].sequence;
 		frame = player_params[player].frame;
 		origin = player_params[player].final_origin;
@@ -881,9 +900,9 @@ void EXT_FUNC HL_StudioSetupBones(model_t* pModel, float frame, int sequence, co
 	}
 	else
 	{
-		// todo implement non-players backtracked animation
-		orig_interface.SV_StudioSetupBones(pModel, frame, sequence, angles, origin, pcontroller, pblending, iBone, pEdict);
-		return;
+		// engine-supplied origin/angles are already correct for non-players
+		temp_angles = Vector(angles[0], angles[1], angles[2]);
+		player = SetupNonPlayerParams(frame, sequence, pcontroller, pblending, pEdict);
 	}
 
 	g_pstudiohdr = (studiohdr_t*)IEngineStudio.Mod_Extradata(pModel);
@@ -893,7 +912,7 @@ void EXT_FUNC HL_StudioSetupBones(model_t* pModel, float frame, int sequence, co
 		return;
 	}
 
-	if (sequence >= g_pstudiohdr->numseq)
+	if (sequence < 0 || sequence >= g_pstudiohdr->numseq)
 		sequence = 0;
 
 
@@ -1152,9 +1171,9 @@ void EXT_FUNC CS_StudioSetupBones(model_t* pModel, float frame, int sequence, co
 	}
 	else
 	{
-		// todo implement non-players backtracked animation
-		orig_interface.SV_StudioSetupBones(pModel, frame, sequence, angles, origin, pcontroller, pblending, iBone, pEdict);
-		return;
+		// engine-supplied origin/angles are already correct for non-players; f is estimated below
+		temp_angles = Vector(angles[0], angles[1], angles[2]);
+		player = SetupNonPlayerParams(frame, sequence, pcontroller, pblending, pEdict);
 	}
 	g_pstudiohdr = (studiohdr_t*)IEngineStudio.Mod_Extradata(pModel);
 
@@ -1169,6 +1188,9 @@ void EXT_FUNC CS_StudioSetupBones(model_t* pModel, float frame, int sequence, co
 	pbones = (mstudiobone_t*)((byte*)g_pstudiohdr + g_pstudiohdr->boneindex);
 	pseqdesc = (mstudioseqdesc_t*)((byte*)g_pstudiohdr + g_pstudiohdr->seqindex) + sequence;
 	panim = StudioGetAnim(pModel, pseqdesc);
+
+	if (player == MAX_CLIENTS)
+		f = StudioEstimateFrame(pseqdesc);
 
 	if (iBone < -1 || iBone >= g_pstudiohdr->numbones)
 		iBone = 0;
@@ -1409,7 +1431,7 @@ void EXT_FUNC CS_StudioSetupBones(model_t* pModel, float frame, int sequence, co
 	{
 		player_params[player].prevframe = f;
 	}
-	if (player != -1 && sequence < ANIM_FIRST_DEATH_SEQUENCE && sequence != ANIM_SWIM_1 && sequence != ANIM_SWIM_2)
+	if (player < MAX_CLIENTS && sequence < ANIM_FIRST_DEATH_SEQUENCE && sequence != ANIM_SWIM_1 && sequence != ANIM_SWIM_2)
 	{
 		bool bCopy = true;
 
