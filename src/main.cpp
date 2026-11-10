@@ -133,9 +133,8 @@ void (StartFramePost)()
 		state.controller[1] = cl->edict->v.controller[1];
 		state.controller[2] = cl->edict->v.controller[2];
 		state.controller[3] = cl->edict->v.controller[3];
-		state.blending[0] = cl->edict->v.blending[1];
+		state.blending[0] = cl->edict->v.blending[0];
 		state.blending[1] = cl->edict->v.blending[1];
-		state.controller[3] = cl->edict->v.controller[3];
 		ProcessAnimParams(id-1, 0,
 			player_params_history[0].hist[SV_UPDATE_MASK & (ServerFrameId)][id-1],
 			player_params_history[0].hist[SV_UPDATE_MASK & (ServerFrameId - 1)][id-1],
@@ -357,7 +356,6 @@ void CalculatePitchBlend(player_anim_params_s& params)
 	params.prevangles.x = params.final_angles.x;
 	params.blending[1] = iBlend;
 	params.prevblending[1] = params.blending[1];
-	params.prevseqblending[1] = params.blending[1];
 
 }
 
@@ -397,13 +395,13 @@ void CalculateYawBlend(player_anim_params_s& params)
 
 	params.blending[0] = (int)(blend_yaw);
 	params.prevblending[0] = params.blending[0];
-	params.prevseqblending[0] = params.blending[0];
 	params.final_angles[1] = params.gaityaw;
 
 	if (params.final_angles[1] < 0)
 		params.final_angles[1] += 360;
 
 	params.prevangles[1] = params.final_angles[1];
+	params.final_angles[2] = 0; // server pose is yaw-only: a client-controlled roll must not tilt the hitboxes
 }
 
 /*
@@ -533,7 +531,6 @@ void HL_StudioProcessGait(player_anim_params_s& params)
 	params.prevangles[0] = params.final_angles[0];
 	params.blending[0] = iBlend;
 	params.prevblending[0] = params.blending[0];
-	params.prevseqblending[0] = params.blending[0];
 	HL_StudioEstimateGait(params);
 
 	// calc side to side turning
@@ -635,7 +632,8 @@ qboolean CL_FindInterpolationUpdates(int host, int target, int sequence, float t
 
 	for (i = 1; i < SV_UPDATE_BACKUP - 1; i++)
 	{
-		at = player_params_history[host].hist[(imod - i) & SV_UPDATE_MASK][target].animtime;
+		// key on packet time (m_clTime), not animtime: animtime only changes on sequence change
+		at = player_params_history[host].hist[(imod - i) & SV_UPDATE_MASK][target].m_clTime;
 
 		if (at == 0.0)
 			break;
@@ -711,18 +709,19 @@ float CL_PureOrigin(int host, int target, float t, vec3_t& outorigin, vec3_t& ou
 	if (host)
 	{
 		auto _host_client = api->GetClient(host-1);
-		CL_FindInterpolationUpdates(host, target, (_host_client->netchan.outgoing_sequence + 1), t, &ph0, &ph1);
+		// newest sample = the slot being written now (outgoing_sequence); +1 would be a stale slot from 64 packets ago
+		CL_FindInterpolationUpdates(host, target, _host_client->netchan.outgoing_sequence, t, &ph0, &ph1);
 	}
 	else
 	{
-		CL_FindInterpolationUpdates(host, target, (ServerFrameId + 1), t, &ph0, &ph1);
+		CL_FindInterpolationUpdates(host, target, ServerFrameId, t, &ph0, &ph1);
 	}
 
 	if (!ph0 || !ph1)
 		return 0.0f;
 
-	t0 = ph0->animtime;
-	t1 = ph1->animtime;
+	t0 = ph0->m_clTime;
+	t1 = ph1->m_clTime;
 
 
 	if (t0 != 0)
@@ -818,32 +817,32 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 		if (host_id)
 		{	
 			auto _host_client = api->GetClient(host_id - 1);
-			t -= (_host_client->lastcmd.lerp_msec) * 0.001f;
+			// lerp_msec is client-controlled: clamp like the engine's unlag (0..0.1s) so a client can't pick its own rewind time
+			t -= clamp<float>(_host_client->lastcmd.lerp_msec * 0.001f, 0.0f, 0.1f);
 		}
 		else
 		{
 			params.final_angles = state->angles;
-			params.final_origin = state->angles;
+			params.final_origin = state->origin;
 		}
 		CL_PureOrigin(host_id, id, t, params.final_origin, params.final_angles);
 		params.m_prevgaitorigin = prev_params.final_origin;
 
 		params.prevangles = prev_params.final_angles;
-		params.prevframe = prev_params.f;
-		params.prevsequence = prev_params.sequence;
 
 		if (params.sequence < 0)
 			params.sequence = 0;
 
-		// sequence has changed, hold the previous sequence info
-		if (params.sequence != params.prevsequence)
+		// sequence has changed: latch the old pose (sequence/frame/blends) for the 0.2s transition.
+		// prevsequence/prevframe/prevseqblending/sequencetime are inherited from prev_params
+		// and must only be overwritten here, otherwise the latch lives for one frame only.
+		if (params.sequence != prev_params.sequence)
 		{
 			params.sequencetime = params.animtime + 0.01f;
-
-			// save current blends to right lerping from last sequence
+			params.prevsequence = prev_params.sequence;
+			params.prevframe = prev_params.f;
 			for (int i = 0; i < 2; i++)
 				params.prevseqblending[i] = prev_params.blending[i];
-			params.prevsequence = prev_params.sequence; // save old sequence	
 		}
 
 
