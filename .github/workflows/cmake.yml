@@ -10,6 +10,9 @@ jobs:
     steps:
     - name: Install dependencies
       run: |
+        # Debian 11 is EOL: its repos moved to archive.debian.org (kept on 11 for the old glibc baseline)
+        sed -i -e 's|deb.debian.org|archive.debian.org|g' -e '/bullseye-updates/d' /etc/apt/sources.list
+        echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive
         apt-get update
         apt-get install -y  git gcc-multilib g++-multilib ninja-build cmake
           
