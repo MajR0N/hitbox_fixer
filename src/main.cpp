@@ -9,6 +9,9 @@ cvar_t* sv_maxunlag;
 cvar_t* sv_unlagpush;
 cvar_t hf_hitbox_fix = { "hbf_enabled", "1", FCVAR_SERVER | FCVAR_PROTECTED, 0.0f, NULL };
 cvar_t* phf_hitbox_fix;
+// 0 = off, 1 = events (sequence latch, first-slot seed), 2 = + periodic per-player gait/interp dump (max 2/s per player)
+cvar_t hbf_developer = { "hbf_developer", "0", FCVAR_SERVER, 0.0f, NULL };
+cvar_t* phbf_developer;
 char g_ExecConfigCmd[MAX_PATH];
 std::unique_ptr<players_api> api;
 GameType_e g_eGameType;
@@ -76,6 +79,8 @@ void UTIL_ServerPrint(const char* fmt, ...)
 
 	SERVER_PRINT(string);
 }
+
+#define HBF_LOG(lvl, fmt, ...) do { if (phbf_developer && phbf_developer->value >= (lvl)) UTIL_ServerPrint("[HBF] " fmt "\n", ##__VA_ARGS__); } while (0)
 
 void VectorMA(const vec_t* veca, float scale, const vec_t* vecm, vec_t* out)
 {
@@ -785,6 +790,7 @@ float BitTime8(float f2)
 void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player_anim_params_s& prev_params, entity_state_s* state)
 {
 	int i;
+	float frac = 0.f;
 	if (state)
 	{
 		params = prev_params;
@@ -818,20 +824,24 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 		{	
 			auto _host_client = api->GetClient(host_id - 1);
 			// lerp_msec is client-controlled: clamp like the engine's unlag (0..0.1s) so a client can't pick its own rewind time
-			t -= clamp<float>(_host_client->lastcmd.lerp_msec * 0.001f, 0.0f, 0.1f);
+			float lerp = _host_client->lastcmd.lerp_msec * 0.001f;
+			if (lerp > 0.1f)
+				HBF_LOG(2, "host %d lerp %.3f clamped to 0.1", host_id, lerp);
+			t -= clamp<float>(lerp, 0.0f, 0.1f);
 		}
 		else
 		{
 			params.final_angles = state->angles;
 			params.final_origin = state->origin;
 		}
-		CL_PureOrigin(host_id, id, t, params.final_origin, params.final_angles);
+		frac = CL_PureOrigin(host_id, id, t, params.final_origin, params.final_angles);
 		if (prev_params.m_clTime)
 		{
 			params.m_prevgaitorigin = prev_params.final_origin;
 		}
 		else
 		{
+			HBF_LOG(1, "p%d first update (host %d): gait state seeded", id, host_id);
 			// no previous slot (spawn / first update): dt=0, no fake velocity, gait starts facing the view
 			params.m_clOldTime = params.m_clTime;
 			params.m_prevgaitorigin = params.final_origin;
@@ -848,6 +858,7 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 		// and must only be overwritten here, otherwise the latch lives for one frame only.
 		if (params.sequence != prev_params.sequence)
 		{
+			HBF_LOG(1, "p%d seq %d -> %d (prevframe %.2f, host %d)", id, prev_params.sequence, params.sequence, prev_params.f, host_id);
 			params.sequencetime = params.animtime + 0.01f;
 			params.prevsequence = prev_params.sequence;
 			params.prevframe = prev_params.f;
@@ -912,7 +923,19 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 			params.prevcontroller[3] = params.controller[3];
 		}
 	}
-	
+
+	if (state && phbf_developer && phbf_developer->value >= 2 && id >= 0 && id < MAX_CLIENTS)
+	{
+		static double nextdump[MAX_CLIENTS];
+		if (gpGlobals->time >= nextdump[id])
+		{
+			nextdump[id] = gpGlobals->time + 0.5;
+			HBF_LOG(2, "p%d host %d seq %d gait %d gaityaw %.1f yaw %.1f blend %d/%d frac %.2f dt %.3f moved %.2f",
+				id, host_id, params.sequence, params.gaitsequence, params.gaityaw, params.final_angles.y,
+				params.blending[0], params.blending[1], frac, params.m_clTime - params.m_clOldTime,
+				(params.final_origin - state->origin).Length());
+		}
+	}
 }
 
 void PlayerPostThinkPost(edict_t* pEntity)
@@ -1093,6 +1116,8 @@ bool OnMetaAttach()
 
 	CVAR_REGISTER(&hf_hitbox_fix);
 	phf_hitbox_fix = CVAR_GET_POINTER(hf_hitbox_fix.name);
+	CVAR_REGISTER(&hbf_developer);
+	phbf_developer = CVAR_GET_POINTER(hbf_developer.name);
 
 	HF_Init_Config();
 	HF_Exec_Config();
