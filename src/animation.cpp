@@ -36,6 +36,7 @@ int player = -1;
 edict_t* m_pCurrentEntity;
 extern qboolean nofind;
 void HBF_CheckBones(int player, const int* chain, int n);
+void HBF_DrawHitboxes(int player, int bonesComputed);
 
 int VectorCompare(const vec_t* v1, const vec_t* v2)
 {
@@ -1071,6 +1072,7 @@ void EXT_FUNC HL_StudioSetupBones(model_t* pModel, float frame, int sequence, co
 			ConcatTransforms((*g_pBoneTransform)[pbones[j].parent], bonematrix, (*g_pBoneTransform)[j]);
 	}
 	HBF_CheckBones(player, chain, chainlength);
+	HBF_DrawHitboxes(player, chainlength);
 }
 
 void CS_StudioProcessParams(int player, player_anim_params_s& params)
@@ -1484,4 +1486,5 @@ void EXT_FUNC CS_StudioSetupBones(model_t* pModel, float frame, int sequence, co
 			ConcatTransforms((*g_pBoneTransform)[pbones[j].parent], bonematrix, (*g_pBoneTransform)[j]);
 	}
 	HBF_CheckBones(player, chain, chainlength);
+	HBF_DrawHitboxes(player, chainlength);
 }

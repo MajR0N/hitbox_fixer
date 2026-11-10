@@ -38,7 +38,7 @@ Settings are in `addons/hitboxfixer/hbf.cfg`. You can also type them in the serv
 | Setting | What it does |
 |---|---|
 | `hbf_enabled 1` | `1` = plugin on, `0` = plugin off. |
-| `hbf_developer 0` | Only for finding problems. `0` = off, `1` = prints short messages (animation changes, broken bones), `2` = also prints a status line for each player twice a second. |
+| `hbf_developer 0` | Only for finding problems. `0` = off, `1` = prints short messages (animation changes, broken bones), `2` = also prints a status line for each player twice a second, `3` = also draws green boxes (1 second) around the hitboxes the server tests, for a player who is shooting. Compare them with the model you see. Use together with `hbf_developer_player`. |
 | `hbf_developer_player 0` | Print messages for one player only. Use the player number from the messages (`p3` = `3`). `0` = all players. |
 
 ## Credits

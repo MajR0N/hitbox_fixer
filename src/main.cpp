@@ -109,6 +109,45 @@ void HBF_CheckBones(int player, const int* chain, int n)
 				}
 }
 
+// level 3: while a lag-compensated shooter holds fire, send every hitbox of the target to them as a green TE_BOX (1s).
+// This is the exact pose the hit test uses, so compare it with the model you see.
+// ponytail: boxes are world-axis AABBs of the rotated hitboxes (slightly bigger than the real ones); TE_BOX is unreliable, so all-players mode can drop boxes -> use hbf_developer_player.
+extern studiohdr_t* g_pstudiohdr;
+edict_t* g_hbfShooter; // set in PlayerPreThink, cleared in PlayerPostThinkPost
+void HBF_DrawHitboxes(int player, int bonesComputed)
+{
+	static double next[MAX_CLIENTS];
+	if (player < 0 || player >= MAX_CLIENTS || !g_hbfShooter || nofind || !(g_hbfShooter->v.button & IN_ATTACK) ||
+		!HBF_Dev(3, player) || gpGlobals->time < next[player] || !g_pstudiohdr || bonesComputed != g_pstudiohdr->numbones)
+		return; // bonesComputed != numbones: partial chain, other bones are stale
+	next[player] = gpGlobals->time + 0.5;
+	auto hb = (const mstudiobbox_t*)((const byte*)g_pstudiohdr + g_pstudiohdr->hitboxindex);
+	for (int i = 0; i < g_pstudiohdr->numhitboxes; i++)
+	{
+		if (hb[i].bone < 0 || hb[i].bone >= g_pstudiohdr->numbones)
+			continue;
+		const float(*m)[4] = (*g_pBoneTransform)[hb[i].bone];
+		float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
+		for (int c = 0; c < 8; c++)
+		{
+			const float p[3] = { c & 1 ? hb[i].bbmax[0] : hb[i].bbmin[0], c & 2 ? hb[i].bbmax[1] : hb[i].bbmin[1], c & 4 ? hb[i].bbmax[2] : hb[i].bbmin[2] };
+			for (int a = 0; a < 3; a++)
+			{
+				float w = m[a][0] * p[0] + m[a][1] * p[1] + m[a][2] * p[2] + m[a][3];
+				lo[a] = std::fmin(lo[a], w);
+				hi[a] = std::fmax(hi[a], w);
+			}
+		}
+		g_engfuncs.pfnMessageBegin(MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, nullptr, g_hbfShooter);
+		g_engfuncs.pfnWriteByte(TE_BOX);
+		for (int a = 0; a < 3; a++) g_engfuncs.pfnWriteCoord(lo[a]);
+		for (int a = 0; a < 3; a++) g_engfuncs.pfnWriteCoord(hi[a]);
+		g_engfuncs.pfnWriteShort(10); // life, 0.1s units
+		g_engfuncs.pfnWriteByte(0); g_engfuncs.pfnWriteByte(255); g_engfuncs.pfnWriteByte(0);
+		g_engfuncs.pfnMessageEnd();
+	}
+}
+
 void VectorMA(const vec_t* veca, float scale, const vec_t* vecm, vec_t* out)
 {
 	out[0] = scale * vecm[0] + veca[0];
@@ -196,6 +235,7 @@ void (PlayerPreThinkPre)(edict_t* pEntity)
 	vec3_t maxs;
 
 	nofind = 1;
+	g_hbfShooter = pEntity;
 	if (_host_client->fakeclient)
 		RETURN_META(MRES_IGNORED);
 
@@ -967,7 +1007,8 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 
 void PlayerPostThinkPost(edict_t* pEntity)
 {
-	nofind = 0;	
+	nofind = 0;
+	g_hbfShooter = nullptr;
 
 	auto maxclients = api->GetMaxClients();
 	for (int id = 1; id <= maxclients; id++)
