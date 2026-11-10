@@ -303,7 +303,7 @@ void StudioEstimateGait(player_anim_params_s& params)
 		else
 			flYawDiff *= dt;
 
-		if (abs(flYawDiff) < 0.1)
+		if (fabsf(flYawDiff) < 0.1f)
 			flYawDiff = 0;
 
 		params.gaityaw += flYawDiff;
@@ -826,7 +826,17 @@ void ProcessAnimParams(int id, int host_id, player_anim_params_s& params, player
 			params.final_origin = state->origin;
 		}
 		CL_PureOrigin(host_id, id, t, params.final_origin, params.final_angles);
-		params.m_prevgaitorigin = prev_params.final_origin;
+		if (prev_params.m_clTime)
+		{
+			params.m_prevgaitorigin = prev_params.final_origin;
+		}
+		else
+		{
+			// no previous slot (spawn / first update): dt=0, no fake velocity, gait starts facing the view
+			params.m_clOldTime = params.m_clTime;
+			params.m_prevgaitorigin = params.final_origin;
+			params.gaityaw = params.final_angles.y;
+		}
 
 		params.prevangles = prev_params.final_angles;
 
