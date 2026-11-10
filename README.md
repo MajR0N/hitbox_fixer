@@ -1,5 +1,6 @@
 # Hitbox Fixer ![C/C++ CI](https://github.com/MajR0N/hitbox_fixer/workflows/CMake/badge.svg)
 This module fixes incorrect player server-side hitboxes in Counter-Strike 1.6, Half-Life and AG. (Create issue if want support for your mod).
+This is a fork of [Garey27/hitbox_fixer](https://github.com/Garey27/hitbox_fixer) with extra fixes. All credit for the original plugin goes to **Garey27 (Gary)**.
 
 ## In simple words
 In CS 1.6 the server has its own copy of every player's body, and it uses that copy to decide if a shot hit.
@@ -39,3 +40,7 @@ Settings are in `addons/hitboxfixer/hbf.cfg`. You can also type them in the serv
 | `hbf_enabled 1` | `1` = plugin on, `0` = plugin off. |
 | `hbf_developer 0` | Only for finding problems. `0` = off, `1` = prints short messages (animation changes, broken bones), `2` = also prints a status line for each player twice a second. |
 | `hbf_developer_player 0` | Print messages for one player only. Use the player number from the messages (`p3` = `3`). `0` = all players. |
+
+## Credits
+* **[Garey27](https://github.com/Garey27)** - author of the original Hitbox Fixer. The plugin and the idea are his; this fork builds on his work.
+* This project is licensed under the GNU GPL v3 (see `LICENSE`), the same as the original.
